@@ -1,112 +1,214 @@
 # ETF轮动策略 - 实现任务清单
 
-> 目标：把 ETF 轮动框架实现为 **agent skills 驱动**的策略系统。以下任务以“能力定义、运行时编排、执行适配、审计与验证”为主线，不再把 skill 简化为若干 Python 模块文件。
+> 目标：把 ETF 轮动框架实现为 **agent skills 驱动**的策略系统。
 
-## 1. 建立 Skill 能力模型
+## 阶段 1: Schema 与 Skill Manifest 基础
 
-- [ ] 1.1 定义 skill manifest 的统一 schema（id、purpose、mode、preconditions、input/output、side effects、permissions、executor binding、observability）
-- [ ] 1.2 定义 ETF 轮动共享上下文 schema（market snapshot、candidate rankings、risk state、target portfolio、approval state、execution trace）
-- [ ] 1.3 定义 skill 执行结果的统一 envelope 与错误模型
-- [ ] 1.4 定义 side effect 与 permission taxonomy（read_only / advisory / state_write / trade_proposal / trade_execute）
-- [ ] 1.5 定义 backtest / live / paper 三种运行模式下的 skill 可用性矩阵
+- [x] 1.1 创建 `schemas/` 目录及共享数据结构定义
+  - [x] `market-snapshot.yaml`
+  - [x] `candidate-ranking.yaml`
+  - [x] `risk-state.yaml`
+  - [x] `target-portfolio.yaml`
+  - [x] `decision-envelope.yaml`
+  - [x] `skill-result-envelope.yaml`
 
-## 2. 定义首批 ETF 轮动 Skills
+- [x] 1.2 创建各 skill 的 `manifest.yaml`
+  - [x] `skills/market-data-snapshot/manifest.yaml`
+  - [x] `skills/momentum-ranking/manifest.yaml`
+  - [x] `skills/risk-guard/manifest.yaml`
+  - [x] `skills/market-context-interpreter/manifest.yaml`
+  - [x] `skills/portfolio-constructor/manifest.yaml`
+  - [x] `skills/rebalance-executor/manifest.yaml`
+  - [x] `skills/decision-explainer/manifest.yaml`
+  - [x] `skills/rotation-orchestrator/manifest.yaml`
 
-- [ ] 2.1 定义 `market-data-snapshot` skill manifest
-- [ ] 2.2 定义 `momentum-ranking` skill manifest
-- [ ] 2.3 定义 `risk-guard` skill manifest
-- [ ] 2.4 定义 `market-context-interpreter` skill manifest
-- [ ] 2.5 定义 `portfolio-constructor` skill manifest
-- [ ] 2.6 定义 `rebalance-executor` skill manifest
-- [ ] 2.7 定义 `decision-explainer` skill manifest
-- [ ] 2.8 为每个 skill 明确 preconditions、fallback policy 与 observability 要求
+- [x] 1.3 迁移现有 specs 到新目录结构
+  - [x] 各 skill 目录下添加 `spec.md`
 
-## 3. 实现 Skill Registry 与最小 Runtime
-
-- [ ] 3.1 实现 skill manifest 加载与校验
-- [ ] 3.2 实现 registry 查询能力（按 skill_id、trigger、mode、permission 查询）
-- [ ] 3.3 实现 `StrategyContext` 与 `WorkingMemory`
-- [ ] 3.4 实现 skill 调用标准接口，统一输入输出 envelope
-- [ ] 3.5 实现 execution trace 记录，能追踪每轮调仓调用过哪些 skills
-- [ ] 3.6 实现 skill 失败处理策略（fail-fast / degrade / retry / human-review）
-
-## 4. 接入确定性 Executors / Adapters
-
-- [ ] 4.1 为 ETF 行情、历史 K 线、资产池加载建立 market data adapter，复用现有数据抓取能力
-- [ ] 4.2 为动量、均线趋势、排名建立 deterministic executor，复用现有指标与回测能力
-- [ ] 4.3 为回撤、波动率、冷却期、仓位限制建立 risk executor
-- [ ] 4.4 为目标权重分配建立 portfolio constructor executor
-- [ ] 4.5 为模拟交易与真实交易建立统一 trade executor 接口
-- [ ] 4.6 明确 executor binding 如何从 manifest 映射到 Python 实现
-
-## 5. 实现 Orchestrator 编排主链路
-
-- [ ] 5.1 实现周度调仓主流程：snapshot → ranking → risk → optional context → portfolio → explain → execute
-- [ ] 5.2 实现日内风险监控流程，只调度与风险相关的 skills
-- [ ] 5.3 实现基于 preconditions 的 skill 可用性判断
-- [ ] 5.4 实现 `decision envelope` 聚合逻辑
-- [ ] 5.5 实现冲突处理优先级：risk guard > policy guardrail > AI advisory > ranking result
-- [ ] 5.6 实现手动触发与定时触发的统一调度入口
-
-## 6. 接入 AI 辅助 Skills 与 Guardrails
-
-- [ ] 6.1 实现 `market-context-interpreter` 的 advisory-only 输出边界
-- [ ] 6.2 实现 `decision-explainer`，输出人类可读的调仓理由与风险说明
-- [ ] 6.3 实现 AI skill 的输入裁剪、输出结构化和日志记录
-- [ ] 6.4 实现 guardrail，禁止 AI 直接绕过 risk guard 或直接执行交易
-- [ ] 6.5 实现 AI 输出超出阈值时转人工确认的机制
-
-## 7. 审批、权限与审计
-
-- [ ] 7.1 实现 approval gate，对 `trade_proposal` / `trade_execute` 类 skill 进行拦截与审批
-- [ ] 7.2 实现 live 模式下的人工确认策略（整轮确认或单笔确认）
-- [ ] 7.3 记录每次 skill 执行的输入摘要、输出摘要、耗时、错误与审批状态
-- [ ] 7.4 记录本轮调仓由哪些 skill 输出共同构成最终决策
-- [ ] 7.5 提供查询最近 execution trace 与 decision audit 的接口
-
-## 8. 回测与实盘一致性
-
-- [ ] 8.1 实现 deterministic skill 图在 backtest 中的完整回放
-- [ ] 8.2 实现 AI skill 在 backtest 中的禁用 / no-op / 回放策略
-- [ ] 8.3 验证同一历史窗口下 deterministic 决策可重复
-- [ ] 8.4 实现 paper 模式，允许生成 proposal 但不执行真实交易
-- [ ] 8.5 统一 backtest/live 的 decision envelope 格式
-
-## 9. 策略配置与 Skill Policy
-
-- [ ] 9.1 设计策略 policy 配置（资产池、调仓频率、信号参数、风险阈值、审批规则）
-- [ ] 9.2 设计 skill manifests 的配置目录与加载方式
-- [ ] 9.3 实现 policy 校验与默认值回退
-- [ ] 9.4 实现配置变更后的版本记录与 reload 机制
-- [ ] 9.5 明确哪些配置影响 deterministic path，哪些只影响 advisory path
-
-## 10. 持久化与可观测性
-
-- [ ] 10.1 明确需要持久化的对象：signal log、risk event、execution trace、approval record、position snapshot
-- [ ] 10.2 设计执行指标与监控项（成功率、耗时、审批通过率、AI advisory 覆盖率）
-- [ ] 10.3 实现异常告警与关键决策通知
-- [ ] 10.4 生成面向用户的调仓摘要与日报输出
-
-## 11. 测试与验收
-
-- [ ] 11.1 为 manifest schema、registry、context、decision envelope 编写单元测试
-- [ ] 11.2 为 deterministic skills 编写回测一致性测试
-- [ ] 11.3 为 approval gate 与 guardrail 编写安全性测试
-- [ ] 11.4 为 orchestrator 主链路编写集成测试
-- [ ] 11.5 为 paper/live 切换编写模式测试
-- [ ] 11.6 准备一组可复用的示例 skill manifests 与策略样例
-
-## 12. 文档同步
-
-- [ ] 12.1 更新 proposal，使其明确“skill 是能力契约而非 Python 模块”
-- [ ] 12.2 更新 `specs/` 下各 capability 文档，使其采用 skills-first 术语和 contract 结构
-- [ ] 12.3 补充一份“如何新增一个 skill”的开发说明
-- [ ] 12.4 补充一份“如何调试一次调仓 cycle”的运行说明
+- [ ] 1.4 实现 manifest schema 验证
+  - [ ] 定义 manifest.yaml 的 JSON Schema
+  - [ ] 实现验证脚本
 
 ---
 
-**实施主线**：1 → 2 → 3 → 4 → 5 → 7 → 8 → 11
+## 阶段 2: Skill Registry 与 Runtime 核心
 
-**最小可运行里程碑**：完成 `market-data-snapshot`、`momentum-ranking`、`risk-guard`、`portfolio-constructor`、`rebalance-executor(simulated)` + 最小 orchestrator
+- [ ] 2.1 实现 Skill Registry
+  - [ ] manifest 加载器 (从 YAML 加载到内存)
+  - [ ] 按 skill_id / trigger / mode / permission 查询
+  - [ ] schema 引用解析 (加载 schemas/ 下的定义)
 
-**设计红线**：不得把 skill 本体退化为 `instock/skills/*.py` 的模块列表；任何 Python 实现都应被视为 executor / adapter，而不是 skill 定义本身。
+- [ ] 2.2 实现 StrategyContext
+  - [ ] 定义 context 字段结构
+  - [ ] 实现 context 创建与冻结
+  - [ ] 实现字段写入权限控制
+
+- [ ] 2.3 实现 WorkingMemory
+  - [ ] 定义临时推理区结构
+  - [ ] advisory_annotations 支持
+  - [ ] human_review_queue 支持
+
+- [ ] 2.4 实现 SkillResultEnvelope
+  - [ ] 统一返回结构
+  - [ ] 状态码定义 (success/degraded/failed/skipped/no_op)
+  - [ ] 错误与警告结构
+
+- [ ] 2.5 实现 Execution Trace
+  - [ ] 记录每轮调用的 skills 列表
+  - [ ] 记录输入/输出摘要
+  - [ ] 记录耗时与状态
+
+---
+
+## 阶段 3: Orchestrator 核心
+
+- [ ] 3.1 实现 Cycle 生命周期
+  - [ ] cycle_id 生成
+  - [ ] context 初始化
+  - [ ] mode 判断
+
+- [ ] 3.2 实现 Skill Pipeline 编排
+  - [ ] 按 pipeline 定义顺序调度 skills
+  - [ ] 处理 required vs optional skill
+  - [ ] 处理 fail-fast vs degrade-on-fail
+
+- [ ] 3.3 实现 Preconditions 检查
+  - [ ] 解析 manifest 中的 preconditions
+  - [ ] 运行时求值
+
+- [ ] 3.4 实现 Conflict Resolution
+  - [ ] 按优先级合并输出
+  - [ ] 记录冲突决策
+
+- [ ] 3.5 实现 Decision Envelope 聚合
+  - [ ] 合并各 skill 输出
+  - [ ] 生成 idempotency_key
+
+---
+
+## 阶段 4: 确定性 Executors
+
+- [ ] 4.1 market-data-snapshot executor
+  - [ ] 复用 `fund_etf_em.py`
+  - [ ] 实现 snapshot 生成
+  - [ ] 实现 cache 降级
+
+- [ ] 4.2 momentum-ranking executor
+  - [ ] 复用指标计算
+  - [ ] 实现 Z-Score 标准化
+  - [ ] 实现趋势过滤
+
+- [ ] 4.3 risk-guard executor
+  - [ ] 实现止损检查
+  - [ ] 实现回撤检查
+  - [ ] 实现冷却期检查
+  - [ ] 实现仓位限制
+
+- [ ] 4.4 portfolio-constructor executor
+  - [ ] 实现权重分配
+  - [ ] 应用约束
+  - [ ] 生成 target_portfolio
+
+- [ ] 4.5 rebalance-executor executor
+  - [ ] 实现 trade_proposal 生成
+  - [ ] 实现 backtest 模拟成交
+  - [ ] 实现 paper 模拟回执
+  - [ ] 实现与 easytrader 集成
+
+---
+
+## 阶段 5: AI Skill Executors
+
+- [ ] 5.1 AI Executor 基础框架
+  - [ ] Claude API 集成
+  - [ ] 输入裁剪
+  - [ ] 输出结构化
+  - [ ] 超时处理
+
+- [ ] 5.2 market-context-interpreter executor
+  - [ ] 新闻/政策数据获取
+  - [ ] AI 推理 prompt
+  - [ ] 输出结构化
+
+- [ ] 5.3 decision-explainer executor
+  - [ ] 读取 decision_envelope
+  - [ ] 生成人类可读解释
+  - [ ] 降级为模板化解释
+
+- [ ] 5.4 AI Boundary Guardrails
+  - [ ] 运行时检查 writable_fields
+  - [ ] 运行时检查 forbidden_fields
+  - [ ] 越界时拒绝或警告
+
+---
+
+## 阶段 6: Approval Gate 与审计
+
+- [ ] 6.1 Approval Gate
+  - [ ] 实现审批状态机
+  - [ ] 实现 approval_token 生成
+  - [ ] 实现过期检查
+  - [ ] 实现幂等键校验
+
+- [ ] 6.2 人工确认
+  - [ ] 实现确认界面/通知
+  - [ ] 实现单笔 vs 批量审批
+
+- [ ] 6.3 审计日志
+  - [ ] execution_trace 持久化
+  - [ ] decision_log 持久化
+  - [ ] 查询接口
+
+---
+
+## 阶段 7: 运行模式
+
+- [ ] 7.1 Backtest 模式
+  - [ ] 历史数据回放
+  - [ ] AI skill 禁用/no-op
+  - [ ] 模拟成交
+
+- [ ] 7.2 Paper 模式
+  - [ ] 实时数据 + 模拟执行
+  - [ ] AI skill 启用
+  - [ ] 不触达券商
+
+- [ ] 7.3 Live 模式
+  - [ ] 审批闸门强制
+  - [ ] 真实执行
+  - [ ] 异常告警
+
+---
+
+## 阶段 8: 测试与验收
+
+- [ ] 8.1 Schema 验证测试
+- [ ] 8.2 Manifest 加载测试
+- [ ] 8.3 确定性 skill 回测一致性测试
+- [ ] 8.4 AI boundary guardrails 测试
+- [ ] 8.5 Approval gate 测试
+- [ ] 8.6 Pipeline 编排集成测试
+
+---
+
+## 里程碑
+
+| 里程碑 | 完成条件 | 解锁能力 |
+|-------|---------|---------|
+| **M1: Schema + Manifest** | 阶段1完成 | 文档结构就绪 |
+| **M2: Registry + Context** | 阶段2完成 | 可加载和调度skill |
+| **M3: Orchestrator** | 阶段3完成 | 可运行pipeline |
+| **M4: Deterministic Skills** | 阶段4完成 | 可回测确定性策略 |
+| **M5: AI Skills** | 阶段5完成 | AI advisory可用 |
+| **M6: Approval + Live** | 阶段6-7完成 | 可实盘运行 |
+
+**最小可运行里程碑**: M4 (完成确定性skills + orchestrator，可运行backtest)
+
+---
+
+## 设计红线
+
+1. **不得把 skill 本体退化为 Python 模块列表** - skill 定义在 manifest.yaml
+2. **Python 代码是 executor/adapter，不是 skill 本体** - 通过 executor_binding 绑定
+3. **AI 不得绕过 risk-guard** - ai_guardrails 强制执行
+4. **live 执行必须经过 approval gate** - 不得偷偷调用交易接口

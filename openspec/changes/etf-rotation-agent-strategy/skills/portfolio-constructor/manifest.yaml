@@ -1,0 +1,88 @@
+skill_id: portfolio-constructor
+version: "1.0.0"
+
+purpose: |
+  在候选列表和风险约束内生成目标组合。
+  计算目标权重分配，输出target_portfolio结构。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - backtest_replay
+
+required_context:
+  - candidate_rankings
+  - risk_state
+  - strategy_policy.position_rules
+  - portfolio_snapshot
+
+input_schema:
+  type: object
+  required:
+    - rankings
+    - risk_constraints
+  properties:
+    rankings:
+      type: object
+      description: 候选排名结果
+    risk_constraints:
+      type: object
+      description: 风险约束
+    current_positions:
+      type: array
+      description: 当前持仓
+    cash_available:
+      type: number
+      description: 可用现金
+
+output_schema:
+  $ref: "../schemas/target-portfolio.yaml"
+
+preconditions:
+  - field: candidate_rankings.status
+    operator: "=="
+    value: success
+  - field: risk_state.status
+    operator: "in"
+    value: [success, degraded]
+
+side_effects: []
+
+permissions: state_write
+
+fallback_policy:
+  on_no_valid_candidates:
+    action: all_cash
+    description: "无有效候选时转为全现金"
+  on_constraint_conflict:
+    action: apply_stricter
+    description: "约束冲突时采用更严格的约束"
+  on_error:
+    action: fail_cycle
+    error_code: PORTFOLIO_CONSTRUCTION_FAILED
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.executors.portfolio_executor
+  function: construct_portfolio
+  config:
+    weighting_method: equal_weight
+    max_single_position: 0.40
+    min_single_position: 0.10
+    min_cash_reserve: 0.10
+    max_cash_reserve: 0.20
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - position_count
+    - cash_weight
+    - concentration_score
+
+ai_guardrails:
+  allow_ai_override: false
+  explanation: "确定性组合构建skill，AI不得修改target_portfolio"

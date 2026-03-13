@@ -1,0 +1,92 @@
+skill_id: market-data-snapshot
+version: "1.0.0"
+
+purpose: |
+  为当前轮动周期生成标准化市场快照。
+  获取ETF实时行情、历史K线、流动性指标，形成统一的market_snapshot结构。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - backtest_replay
+  - daily_monitoring
+
+required_context:
+  - strategy_policy.universe
+  - strategy_policy.data_requirements
+
+input_schema:
+  type: object
+  required:
+    - universe_codes
+    - as_of
+  properties:
+    universe_codes:
+      type: array
+      items:
+        type: string
+      description: ETF代码列表
+    as_of:
+      type: string
+      format: date-time
+      description: 快照时间点
+    history_days:
+      type: integer
+      default: 60
+      description: 需要的历史天数
+    include_intraday:
+      type: boolean
+      default: false
+      description: 是否包含分时数据
+
+output_schema:
+  $ref: "../schemas/market-snapshot.yaml"
+
+preconditions: []
+
+side_effects:
+  - type: state_write
+    optional: true
+    target: market_snapshot_cache
+    description: "可选缓存快照到本地"
+
+permissions: read_only
+
+fallback_policy:
+  on_realtime_fail:
+    action: use_cache
+    max_age_minutes: 30
+    degrade_to: stale
+  on_partial_data:
+    action: continue_with_warning
+    min_coverage: 0.8
+  on_total_fail:
+    action: fail_cycle
+    error_code: DATA_UNAVAILABLE
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.executors.market_data_executor
+  function: generate_snapshot
+  config:
+    default_history_days: 60
+    cache_enabled: true
+    cache_ttl_minutes: 30
+    data_sources:
+      - eastmoney
+      - sina
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - etf_count
+    - coverage_rate
+    - cache_hit_rate
+
+ai_guardrails:
+  allow_ai_override: false
+  explanation: "确定性数据获取skill，AI不得修改数据内容"

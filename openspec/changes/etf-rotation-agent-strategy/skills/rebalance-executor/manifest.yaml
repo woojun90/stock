@@ -1,0 +1,139 @@
+skill_id: rebalance-executor
+version: "1.0.0"
+
+purpose: |
+  把目标组合转成可执行计划，并在允许时执行。
+  生成trade_proposal，在满足审批条件后执行trade_execute。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - risk_triggered
+  - backtest_replay
+
+required_context:
+  - target_portfolio
+  - portfolio_snapshot
+  - approval_state
+  - strategy_policy.execution_rules
+
+input_schema:
+  type: object
+  required:
+    - target_portfolio
+    - current_positions
+  properties:
+    target_portfolio:
+      type: object
+      description: 目标组合
+    current_positions:
+      type: array
+      description: 当前持仓
+    execution_window:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+
+output_schema:
+  type: object
+  properties:
+    proposal_id:
+      type: string
+    trades:
+      type: array
+      items:
+        type: object
+        properties:
+          action:
+            type: string
+            enum: [buy, sell, reduce]
+          code:
+            type: string
+          shares:
+            type: number
+          estimated_price:
+            type: number
+    execution_status:
+      type: string
+      enum: [proposal_generated, awaiting_approval, approved, executed, failed]
+
+preconditions:
+  - field: target_portfolio.status
+    operator: "=="
+    value: success
+
+side_effects:
+  - type: trade_proposal
+    description: "生成交易提案"
+  - type: trade_execute
+    condition: "mode == live AND approval_state == approved"
+    description: "执行真实交易"
+
+permissions:
+  backtest: state_write
+  paper: trade_proposal
+  live: trade_execute
+
+fallback_policy:
+  on_market_closed:
+    action: queue_proposal
+    description: "市场关闭时排队等待"
+  on_insufficient_cash:
+    action: partial_execute
+    description: "现金不足时部分执行"
+  on_execution_fail:
+    action: retry
+    max_retries: 3
+    retry_interval_seconds: 60
+  on_total_fail:
+    action: fail_cycle
+    error_code: EXECUTION_FAILED
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.executors.trade_executor
+  function: execute_rebalance
+  config:
+    slippage_tolerance: 0.005
+    partial_fill_enabled: true
+    broker_adapter: easytrader
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - trade_count
+    - total_amount
+    - fill_rate
+    - slippage
+
+approval_gate:
+  required_for:
+    - trade_execute
+  approval_modes:
+    - single_approval
+    - batch_approval
+  expires_in_hours: 24
+
+mode_behavior:
+  backtest:
+    proposal: simulated
+    execute: simulated_fill
+  paper:
+    proposal: real_proposal
+    execute: simulated_fill
+  live:
+    proposal: real_proposal
+    execute: real_execution_on_approval
+
+ai_guardrails:
+  allow_ai_override: false
+  explanation: "交易执行skill，AI不得直接触发交易"

@@ -1,0 +1,269 @@
+# Decision Envelope Schema
+# 决策信封 - orchestrator聚合后的统一决策对象
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/decision-envelope.yaml"
+title: DecisionEnvelope
+description: |
+  ETF轮动决策信封，由 rotation-orchestrator 聚合各skill输出后生成。
+  是审批、审计、解释、执行的共同输入。
+
+type: object
+required:
+  - decision_id
+  - cycle_id
+  - trigger_type
+  - mode
+  - as_of
+  - selected_skills
+  - candidate_rankings
+  - risk_constraints
+  - target_portfolio
+  - approval_state
+  - idempotency_key
+
+properties:
+  decision_id:
+    type: string
+    description: 决策唯一标识
+    pattern: "^decision_[0-9]{8}_[0-9]{6}_[a-f0-9]{8}$"
+
+  cycle_id:
+    type: string
+    description: 轮动周期标识
+
+  trigger_type:
+    type: string
+    enum: [scheduled_rebalance, risk_triggered, manual_rebalance, backtest_replay]
+    description: 触发类型
+
+  mode:
+    type: string
+    enum: [backtest, paper, live]
+    description: 运行模式
+
+  as_of:
+    type: string
+    format: date-time
+    description: 决策时间点
+
+  policy_version:
+    type: string
+    description: 策略版本
+
+  selected_skills:
+    type: array
+    description: 本轮执行的skills列表
+    items:
+      type: object
+      properties:
+        skill_id:
+          type: string
+        invocation_id:
+          type: string
+        status:
+          type: string
+          enum: [success, degraded, failed, skipped, no_op]
+
+  candidate_rankings:
+    $ref: "#/definitions/CandidateRankingsSummary"
+
+  risk_constraints:
+    $ref: "#/definitions/RiskConstraintsSummary"
+
+  risk_events:
+    type: array
+    description: 风险事件摘要
+    items:
+      type: object
+      properties:
+        event_type:
+          type: string
+        severity:
+          type: string
+        affected_count:
+          type: integer
+
+  market_advisory:
+    $ref: "#/definitions/MarketAdvisory"
+
+  target_portfolio:
+    type: object
+    description: 目标组合（引用portfolio-constructor输出）
+    properties:
+      portfolio_id:
+        type: string
+      positions:
+        type: array
+        items:
+          type: object
+      cash_allocation:
+        type: object
+
+  trade_proposal:
+    $ref: "#/definitions/TradeProposal"
+
+  approval_state:
+    $ref: "#/definitions/ApprovalState"
+
+  fallback_summary:
+    type: object
+    description: 降级/回退摘要
+    properties:
+      fallbacks_occurred:
+        type: integer
+      details:
+        type: array
+        items:
+          type: object
+          properties:
+            skill_id:
+              type: string
+            fallback_type:
+              type: string
+            reason:
+              type: string
+
+  human_readable_rationale:
+    type: string
+    description: 人类可读的决策理由
+
+  audit_refs:
+    type: object
+    description: 审计引用
+    properties:
+      snapshot_id:
+        type: string
+      ranking_id:
+        type: string
+      risk_id:
+        type: string
+      portfolio_id:
+        type: string
+      trace_ids:
+        type: array
+        items:
+          type: string
+
+  idempotency_key:
+    type: string
+    description: 幂等键，用于防重复执行
+
+definitions:
+  CandidateRankingsSummary:
+    type: object
+    description: 候选排名摘要
+    properties:
+      ranking_id:
+        type: string
+      top_candidates:
+        type: array
+        items:
+          type: object
+          properties:
+            code:
+              type: string
+            rank:
+              type: integer
+            z_score:
+              type: number
+      excluded_count:
+        type: integer
+
+  RiskConstraintsSummary:
+    type: object
+    description: 风险约束摘要
+    properties:
+      risk_level:
+        type: string
+      prohibited_buy_count:
+        type: integer
+      required_reduction_count:
+        type: integer
+      forced_exit_count:
+        type: integer
+      key_constraints:
+        type: array
+        items:
+          type: string
+
+  MarketAdvisory:
+    type: object
+    description: 市场环境建议（AI输出）
+    properties:
+      regime:
+        type: string
+        enum: [bull, bear, sideways, uncertain]
+      key_factors:
+        type: array
+        items:
+          type: string
+      recommendations:
+        type: array
+        items:
+          type: string
+      confidence:
+        type: number
+      source:
+        type: string
+        description: AI skill来源
+
+  TradeProposal:
+    type: object
+    description: 交易提案
+    properties:
+      proposal_id:
+        type: string
+      trades:
+        type: array
+        items:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [buy, sell, reduce]
+            code:
+              type: string
+            shares:
+              type: number
+            estimated_price:
+              type: number
+            estimated_amount:
+              type: number
+      total_estimated_amount:
+        type: number
+      execution_window:
+        type: object
+        properties:
+          start:
+            type: string
+            format: date-time
+          end:
+            type: string
+            format: date-time
+      execution_status:
+        type: string
+        enum: [pending_approval, approved, rejected, executed, failed]
+
+  ApprovalState:
+    type: object
+    description: 审批状态
+    properties:
+      status:
+        type: string
+        enum: [not_required, proposal_generated, pending_review, approved, rejected, expired, executed]
+      approval_token:
+        type: string
+        description: 审批令牌（如已批准）
+      approved_at:
+        type: string
+        format: date-time
+      approved_by:
+        type: string
+        description: 审批人
+      expires_at:
+        type: string
+        format: date-time
+        description: 审批过期时间
+      rejection_reason:
+        type: string

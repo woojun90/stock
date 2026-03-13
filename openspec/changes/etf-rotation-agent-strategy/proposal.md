@@ -2,126 +2,163 @@
 
 ## Why
 
-当前 `analysis.md` 已经明确，用户要的是一个 **由 agent skills 能力契约驱动** 的 ETF 轮动框架，而不是把“skills”实现成一组 Python 模块或函数入口。
+### 问题陈述
 
-上一版 proposal / specs 的主要问题是：
+当前 InStock 系统缺少 ETF 轮动策略框架。传统实现方式存在以下问题：
 
-- 把 skill 叙事落成 `instock/skills/*.py` 目录
-- 用函数式 API 描述能力，而不是描述 skill contract
-- 没有把 registry、runtime、approval、audit 作为一等设计对象
-- 让 AI 能力看起来可能直接影响交易主路径，边界不够清楚
+1. **策略规则硬编码** - 修改策略需要改代码，灵活性差
+2. **AI能力与交易边界模糊** - AI可能直接影响交易决策，风险不可控
+3. **回测与实盘行为不一致** - AI参与时结果不可复现
+4. **缺乏审计追溯** - 难以理解决策是如何形成的
 
-本次变更将 proposal 与 specs 统一收敛到 `design.md` 已确认的 **skills-first / capability-contract** 方向。
+### 解决方向
+
+构建一个 **由 Agent Skills 能力契约驱动** 的 ETF 轮动框架：
+- Skill 是声明式能力定义，不是 Python 模块
+- Orchestrator 基于 Registry 编排，不依赖具体实现
+- 确定性 skill 保证回测一致，AI skill 只做 advisory
+- Decision Envelope 提供完整审计追溯
+
+---
 
 ## What Changes
 
-### 1. 引入 Skill Contract 作为一等抽象
+### 1. 引入 Skill Manifest 作为一等抽象
 
-ETF 轮动框架将围绕 skill manifest / contract 组织，而不是围绕 Python 模块组织。每个 skill 至少定义：
+每个 skill 通过 `manifest.yaml` 定义：
+- 能力标识与用途 (`skill_id`, `purpose`)
+- 运行模式 (`mode`: deterministic / ai_assisted)
+- 输入输出 Schema (引用 `schemas/`)
+- 前置条件与副作用 (`preconditions`, `side_effects`)
+- 权限级别 (`permissions`)
+- AI 边界约束 (`ai_guardrails`)
+- 执行器绑定 (`executor_binding`)
 
-- `skill_id`
-- `purpose`
-- `mode`
-- `required_context`
-- `input_schema`
-- `output_schema`
-- `preconditions`
-- `side_effects`
-- `permissions`
-- `fallback_policy`
-- `executor_binding`
-- `observability`
+### 2. 建立共享 Schema 体系
 
-### 2. 引入 Runtime / Registry / Context 驱动的编排方式
+`schemas/` 目录定义统一数据结构：
+- `market-snapshot.yaml` - 市场快照
+- `candidate-ranking.yaml` - 候选排名
+- `risk-state.yaml` - 风险状态
+- `target-portfolio.yaml` - 目标组合
+- `decision-envelope.yaml` - 决策信封
 
-新增的核心运行时概念包括：
+### 3. 实现 Skills-first 编排架构
 
-- `Skill Registry`
-- `StrategyContext`
-- `WorkingMemory`
-- `decision envelope`
-- `approval gate`
-- `execution trace` / `decision audit`
+```
+Policy Layer (YAML配置)
+    ↓
+Skill Definition Layer (manifest.yaml)
+    ↓
+Skill Runtime Layer (Registry, Orchestrator, Context, Approval)
+    ↓
+Executor / Adapter Layer (Python, AI)
+```
 
-orchestrator 将根据 policy、上下文和 preconditions 选择 skill，而不是直接 import 若干实现模块并固定串联调用。
+### 4. 定义首批 ETF 轮动 Skills
 
-### 3. 定义首批 ETF 轮动 Skills
+| Skill | Mode | 用途 |
+|-------|------|------|
+| `market-data-snapshot` | deterministic | 生成市场快照 |
+| `momentum-ranking` | deterministic | 动量排名计算 |
+| `risk-guard` | deterministic | 风险约束评估 |
+| `market-context-interpreter` | ai_assisted | 市场环境解读 (advisory) |
+| `portfolio-constructor` | deterministic | 目标组合构建 |
+| `rebalance-executor` | deterministic | 调仓执行 |
+| `decision-explainer` | ai_assisted | 决策解释 (advisory) |
+| `rotation-orchestrator` | deterministic | 编排中心 |
 
-本次 proposal 覆盖的首批能力包括：
+### 5. 建立 AI 边界强制执行机制
 
-- `market-data-snapshot`
-- `momentum-ranking`
-- `risk-guard`
-- `market-context-interpreter`
-- `portfolio-constructor`
-- `rebalance-executor`
-- `decision-explainer`
-- `rotation-orchestrator`
+AI skill 在 manifest 中声明 `ai_guardrails`：
+- `writable_fields`: 允许写入的字段
+- `forbidden_fields`: 禁止写入的字段
+- Orchestrator 运行时强制执行
 
-其中：
+### 6. 实现多模式运行
 
-- `market-data-snapshot`、`momentum-ranking`、`risk-guard`、`portfolio-constructor`、`rebalance-executor` 属于确定性主路径
-- `market-context-interpreter`、`decision-explainer` 属于 AI 辅助能力
+| Mode | AI Skills | Approval Gate | Execution |
+|------|-----------|---------------|-----------|
+| backtest | 禁用/no-op | 绕过 | 模拟成交 |
+| paper | 启用(advisory) | 模拟 | 模拟回执 |
+| live | 启用(advisory) | 强制 | 审批后真实执行 |
 
-### 4. 明确 AI 与交易边界
-
-AI-assisted skills 只能：
-
-- 提供解释
-- 提供市场背景与异常提示
-- 产生 advisory suggestions
-
-AI-assisted skills 不能：
-
-- 直接改写确定性 ranking
-- 绕过 `risk-guard`
-- 直接触发真实交易
-
-任何超出 guardrail 的建议都必须进入人工确认或被 orchestrator 拒绝采纳。
-
-### 5. 明确执行绑定与复用策略
-
-Python 代码仍然会被大量复用，但它们属于 executor / adapter 层，例如：
-
-- ETF 行情与历史数据抓取
-- 指标与动量计算
-- 回测与交易执行框架
-
-也就是说，**代码实现是 skill 的执行绑定，不是 skill 本体**。
+---
 
 ## Capability Scope
 
-本次变更会重写现有 delta specs，并补齐两份缺失的 specs：
+### 核心能力
 
-- 新增 `portfolio-constructor/spec.md`
-- 新增 `decision-explainer/spec.md`
+1. **etf-data-skill** - ETF 数据获取与快照生成
+2. **momentum-analyzer-skill** - 动量分析与排名
+3. **risk-control-skill** - 风险控制与约束
+4. **market-context-skill** - 市场环境解读
+5. **portfolio-constructor** - 组合构建
+6. **rebalance-executor-skill** - 调仓执行
+7. **decision-explainer** - 决策解释
+8. **rotation-orchestrator** - 策略编排
 
-这样可以让 `specs/` 与 `design.md` 中声明的核心 skill 集保持一致。
+### 配置能力
+
+- `config/policy.yaml` - 策略配置
+
+---
 
 ## Out of Scope
 
-本次不包含以下内容：
+1. 不把 skill 等同于独立 Python 模块目录
+2. 不允许 AI 直接绕过风控或直接下单
+3. 不引入新的重型外部基础设施
+4. 不改造现有数据源与交易底层协议
 
-- 把 skills 固化成新的 `instock/skills/` 模块树
-- 允许 AI 直接控制真实交易
-- 为此引入新的重型外部基础设施
-- 改写现有全站数据抓取或交易底层协议
+---
 
 ## Impact
 
 ### 对现有系统的影响
 
-- 现有抓取、指标、回测、交易代码主要作为 executor / adapter 复用
-- 新增的复杂度主要集中在 manifest、registry、runtime、approval、audit
-- backtest / paper / live 三种模式会拥有统一的 decision envelope，但 side effects 权限不同
-
-### 对文档的影响
-
-- `proposal.md` 不再描述“新增若干 Python 模块”
-- `specs/*.md` 不再描述“函数级 API”
-- 全部文档统一采用 skill contract、编排边界、权限与审计术语
+- 现有抓取、指标、回测、交易代码作为 executor/adapter 复用
+- 新增复杂度集中在 manifest、registry、runtime、approval、audit
+- backtest / paper / live 三种模式统一 decision envelope
 
 ### 风险与收益
 
-- 风险：初期需要先建立 contract 与 runtime 规范
-- 收益：后续 skill 扩展、审计、回测一致性、live 风控边界都会更清晰
+| 风险 | 缓解措施 |
+|-----|---------|
+| Skill 定义过于抽象 | manifest.yaml 必须可验证 |
+| AI 建议侵入确定性路径 | ai_guardrails 运行时强制 |
+| Runtime 复杂度上升 | 分阶段实现，复用现有基础设施 |
+
+---
+
+## 文档结构
+
+```
+openspec/changes/etf-rotation-agent-strategy/
+├── proposal.md              # 本文档
+├── design.md                # 架构设计
+├── tasks.md                 # 实现任务
+├── ARCHITECTURE.md          # 架构概览图
+│
+├── schemas/                 # 共享数据结构
+│   ├── market-snapshot.yaml
+│   ├── candidate-ranking.yaml
+│   ├── risk-state.yaml
+│   ├── target-portfolio.yaml
+│   ├── decision-envelope.yaml
+│   ├── skill-result-envelope.yaml
+│   └── skill-manifest.yaml
+│
+├── config/                  # 策略配置
+│   └── policy.yaml
+│
+└── skills/                  # Skill 定义
+    ├── market-data-snapshot/
+    ├── momentum-ranking/
+    ├── risk-guard/
+    ├── market-context-interpreter/
+    ├── portfolio-constructor/
+    ├── rebalance-executor/
+    ├── decision-explainer/
+    └── rotation-orchestrator/
+```

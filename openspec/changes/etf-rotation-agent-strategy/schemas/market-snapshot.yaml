@@ -1,0 +1,231 @@
+# Market Snapshot Schema
+# 市场快照 - 统一的市场数据结构，供后续 skills 复用
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/market-snapshot.yaml"
+title: MarketSnapshot
+description: |
+  ETF市场快照，包含指定universe的行情数据、历史K线、流动性指标等。
+  由 market-data-snapshot skill 生成，供 ranking/risk/portfolio skills 消费。
+
+type: object
+required:
+  - snapshot_id
+  - as_of
+  - universe_version
+  - etf_data
+  - data_quality
+  - freshness_status
+
+properties:
+  snapshot_id:
+    type: string
+    description: 快照唯一标识，用于审计追溯
+    pattern: "^snapshot_[0-9]{8}_[0-9]{6}$"
+    example: "snapshot_20260313_143000"
+
+  as_of:
+    type: string
+    format: date-time
+    description: 快照时间点
+    example: "2026-03-13T14:30:00+08:00"
+
+  universe_version:
+    type: string
+    description: ETF池版本标识
+    example: "v1.2.0"
+
+  etf_data:
+    type: array
+    description: ETF数据列表
+    items:
+      $ref: "#/definitions/ETFData"
+
+  data_quality:
+    $ref: "#/definitions/DataQuality"
+
+  freshness_status:
+    type: string
+    enum: [fresh, stale, partial, failed]
+    description: |
+      fresh: 实时数据获取成功
+      stale: 使用缓存数据（时间窗内可接受）
+      partial: 部分ETF数据缺失
+      failed: 无法形成可用快照
+
+  source_refs:
+    type: array
+    description: 数据来源引用，用于审计
+    items:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [eastmoney, sina, local_cache]
+        fetched_at:
+          type: string
+          format: date-time
+        record_count:
+          type: integer
+
+definitions:
+  ETFData:
+    type: object
+    required:
+      - code
+      - name
+      - category
+      - price
+      - volume
+      - turnover
+    properties:
+      code:
+        type: string
+        description: ETF代码
+        pattern: "^[0-9]{6}$"
+        example: "588000"
+
+      name:
+        type: string
+        description: ETF名称
+        example: "科创50ETF"
+
+      category:
+        type: string
+        enum: [broad_based, commodity, sector, cash, bond]
+        description: ETF类别
+
+      price:
+        $ref: "#/definitions/PriceData"
+
+      volume:
+        type: number
+        description: 成交量（手）
+        minimum: 0
+
+      turnover:
+        type: number
+        description: 成交额（元）
+        minimum: 0
+
+      history:
+        $ref: "#/definitions/PriceHistory"
+
+      liquidity_metrics:
+        $ref: "#/definitions/LiquidityMetrics"
+
+      premium_discount:
+        $ref: "#/definitions/PremiumDiscount"
+
+      availability_status:
+        type: string
+        enum: [available, suspended, delisted, data_missing]
+        default: available
+
+  PriceData:
+    type: object
+    properties:
+      open:
+        type: number
+        description: 开盘价
+      high:
+        type: number
+        description: 最高价
+      low:
+        type: number
+        description: 最低价
+      close:
+        type: number
+        description: 收盘价
+      prev_close:
+        type: number
+        description: 前收盘价
+      change_pct:
+        type: number
+        description: 涨跌幅（%）
+
+  PriceHistory:
+    type: object
+    description: 历史K线数据
+    properties:
+      period:
+        type: string
+        enum: [daily, weekly]
+        default: daily
+      start_date:
+        type: string
+        format: date
+      end_date:
+        type: string
+        format: date
+      bars:
+        type: array
+        items:
+          type: object
+          properties:
+            date:
+              type: string
+              format: date
+            open:
+              type: number
+            high:
+              type: number
+            low:
+              type: number
+            close:
+              type: number
+            volume:
+              type: number
+
+  LiquidityMetrics:
+    type: object
+    description: 流动性指标
+    properties:
+      avg_turnover_20d:
+        type: number
+        description: 20日平均成交额
+      fund_size:
+        type: number
+        description: 基金规模
+      liquidity_score:
+        type: number
+        minimum: 0
+        maximum: 100
+        description: 流动性评分（0-100）
+
+  PremiumDiscount:
+    type: object
+    description: 溢价率/折价率
+    properties:
+      premium_rate:
+        type: number
+        description: 溢价率（%），正数为溢价，负数为折价
+      nav:
+        type: number
+        description: 单位净值
+
+  DataQuality:
+    type: object
+    description: 数据质量报告
+    properties:
+      total_etfs:
+        type: integer
+        description: 请求的ETF总数
+      available_etfs:
+        type: integer
+        description: 成功获取数据的ETF数
+      coverage_rate:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: 数据覆盖率
+      missing_etfs:
+        type: array
+        items:
+          type: string
+        description: 缺失数据的ETF代码列表
+      quality_score:
+        type: number
+        minimum: 0
+        maximum: 100
+        description: 整体数据质量评分

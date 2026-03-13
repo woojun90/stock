@@ -1,0 +1,90 @@
+skill_id: momentum-ranking
+version: "1.0.0"
+
+purpose: |
+  基于确定性规则生成ETF动量排序结果。
+  计算21日收益率、Z-Score标准化、MA50趋势过滤，输出ranked_candidates和excluded_candidates。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - backtest_replay
+
+required_context:
+  - market_snapshot
+  - strategy_policy.signal_rules
+  - strategy_policy.momentum_parameters
+
+input_schema:
+  type: object
+  required:
+    - snapshot_id
+  properties:
+    snapshot_id:
+      type: string
+      description: 市场快照ID
+    momentum_period:
+      type: integer
+      default: 21
+      description: 动量计算周期（交易日）
+    trend_ma_period:
+      type: integer
+      default: 50
+      description: 趋势均线周期
+    top_n:
+      type: integer
+      default: 10
+      description: 返回前N名候选
+
+output_schema:
+  $ref: "../schemas/candidate-ranking.yaml"
+
+preconditions:
+  - field: market_snapshot.ready
+    operator: "=="
+    value: true
+  - field: market_snapshot.history_days
+    operator: ">="
+    value: 50
+
+side_effects:
+  - type: state_write
+    optional: true
+    target: signal_log
+    description: "可选记录信号到日志表"
+
+permissions: state_write
+
+fallback_policy:
+  on_insufficient_history:
+    action: exclude_candidate
+    reason: insufficient_history
+  on_calculation_error:
+    action: fail_cycle
+    error_code: RANKING_FAILED
+  retry_count: 0
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.executors.momentum_executor
+  function: generate_rankings
+  config:
+    momentum_period: 21
+    trend_ma_period: 50
+    z_score_method: population
+    liquidity_threshold: 50000000
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - candidates_count
+    - excluded_count
+    - avg_momentum_score
+
+ai_guardrails:
+  allow_ai_override: false
+  explanation: "确定性排名skill，AI不得修改ranking结果"

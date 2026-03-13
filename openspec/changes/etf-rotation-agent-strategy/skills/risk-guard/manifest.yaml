@@ -1,0 +1,92 @@
+skill_id: risk-guard
+version: "1.0.0"
+
+purpose: |
+  在组合级和标的级施加风险约束。
+  评估止损、回撤、波动率、冷却期、仓位上限，输出prohibited_buys、required_reductions、forced_exits。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - backtest_replay
+  - daily_monitoring
+  - risk_alert
+
+required_context:
+  - market_snapshot
+  - candidate_rankings
+  - portfolio_snapshot
+  - strategy_policy.risk_rules
+
+input_schema:
+  type: object
+  required:
+    - rankings
+    - current_positions
+  properties:
+    rankings:
+      type: object
+      description: 候选排名结果
+    current_positions:
+      type: array
+      description: 当前持仓
+    portfolio_value:
+      type: number
+      description: 组合净值
+    account_state:
+      type: object
+      description: 账户状态
+
+output_schema:
+  $ref: "../schemas/risk-state.yaml"
+
+preconditions:
+  - field: market_snapshot.ready
+    operator: "=="
+    value: true
+
+side_effects:
+  - type: state_write
+    optional: true
+    target: risk_event_log
+    description: "记录风险事件"
+
+permissions: state_write
+
+fallback_policy:
+  on_risk_check_fail:
+    action: conservative_mode
+    description: "降级为保守模式，限制所有高风险操作"
+  on_error:
+    action: fail_cycle
+    error_code: RISK_CHECK_FAILED
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.executors.risk_executor
+  function: evaluate_risk
+  config:
+    stop_loss_threshold: 0.10
+    portfolio_drawdown_limit: 0.08
+    cooldown_days: 5
+    max_single_position: 0.40
+    min_cash_reserve: 0.10
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - risk_level
+    - prohibited_count
+    - forced_exit_count
+    - events_generated
+
+priority: high
+priority_description: "风控约束优先级高于所有AI建议"
+
+ai_guardrails:
+  allow_ai_override: false
+  explanation: "确定性风控skill，AI不得绕过risk-guard的硬约束"

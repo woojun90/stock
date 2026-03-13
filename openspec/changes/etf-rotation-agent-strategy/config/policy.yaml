@@ -1,0 +1,223 @@
+# ETF轮动策略配置
+# 定义ETF池、动量规则、风控参数、审批规则
+
+policy_version: "1.0.0"
+policy_name: "etf-rotation-default"
+description: "默认ETF轮动策略配置"
+
+# ETF资产池定义
+universe:
+  version: "1.2.0"
+  update_frequency: monthly
+  
+  categories:
+    broad_based:
+      description: "宽基指数ETF"
+      weight_range:
+        min: 0.30
+        max: 0.80
+      etfs:
+        - code: "588000"
+          name: "科创50ETF"
+          enabled: true
+        - code: "159949"
+          name: "创业板50ETF"
+          enabled: true
+        - code: "510300"
+          name: "沪深300ETF"
+          enabled: true
+        - code: "510500"
+          name: "中证500ETF"
+          enabled: true
+    
+    commodity:
+      description: "商品ETF"
+      weight_range:
+        min: 0.05
+        max: 0.30
+      etfs:
+        - code: "518880"
+          name: "黄金ETF"
+          enabled: true
+        - code: "160723"
+          name: "原油ETF"
+          enabled: true
+    
+    sector:
+      description: "行业ETF"
+      weight_range:
+        min: 0.00
+        max: 0.30
+      etfs:
+        - code: "512010"
+          name: "医药ETF"
+          enabled: true
+        - code: "512660"
+          name: "军工ETF"
+          enabled: true
+        - code: "512760"
+          name: "半导体ETF"
+          enabled: true
+    
+    cash:
+      description: "现金类ETF"
+      weight_range:
+        min: 0.10
+        max: 0.20
+      etfs:
+        - code: "511880"
+          name: "银华日利"
+          enabled: true
+
+  liquidity_requirements:
+    min_daily_turnover: 50000000
+    min_fund_size: 200000000
+
+# 动量信号规则
+signal_rules:
+  momentum:
+    period: 21
+    description: "21日动量计算"
+  
+  normalization:
+    method: "z_score"
+    description: "Z-Score标准化"
+  
+  trend_filter:
+    enabled: true
+    ma_period: 50
+    require_uptrend: true
+    description: "价格必须位于MA50上方"
+  
+  ranking:
+    top_n: 10
+    description: "返回前10名候选"
+  
+  thresholds:
+    strong_signal: 1.0
+    weak_signal: 0.0
+    description: |
+      z_score > 1.0: 强信号，可满仓
+      z_score < 0: 弱信号，转现金
+
+# 风险控制规则
+risk_rules:
+  stop_loss:
+    single_etf:
+      threshold: 0.10
+      action: "force_exit"
+      description: "单ETF浮亏>10%强制清仓"
+    
+    portfolio:
+      threshold: 0.08
+      action: "reduce_50pct"
+      description: "组合回撤>8%减仓50%"
+  
+  volatility_timing:
+    enabled: true
+    lookback_days: 20
+    high_threshold: 25
+    low_threshold: 15
+    
+    high_vol_rules:
+      commodity_max: 0.10
+      broad_based_max: 0.40
+      cash_min: 0.20
+      description: "高波动时降仓"
+    
+    low_vol_rules:
+      max_leverage: 1.0
+      description: "低波动时正常仓位"
+  
+  cooldown:
+    enabled: true
+    days: 5
+    trigger: "take_profit"
+    description: "止盈后冷却5个交易日"
+  
+  position_limits:
+    single_etf_min: 0.10
+    single_etf_max: 0.40
+    single_category_max: 0.50
+    cash_min: 0.10
+    cash_max: 0.20
+
+# 调仓规则
+rebalance_rules:
+  frequency: "weekly"
+  day: "friday"
+  time: "14:54"
+  timezone: "Asia/Shanghai"
+  
+  drift_threshold:
+    enabled: true
+    threshold: 0.05
+    description: "偏离目标权重>5%触发再平衡"
+  
+  min_trade_amount: 10000
+  slippage_tolerance: 0.005
+
+# 审批规则
+approval_rules:
+  live_mode:
+    required: true
+    mode: "batch_approval"
+    expires_in_hours: 24
+    
+    escalation:
+      - risk_level: "high"
+        require: "single_approval"
+      - risk_level: "critical"
+        require: "multi_approval"
+        approvers: 2
+  
+  paper_mode:
+    required: false
+  
+  backtest_mode:
+    required: false
+
+# AI Advisory 配置
+ai_advisory:
+  enabled: true
+  providers:
+    - name: "claude"
+      model: "claude-sonnet-4-20250514"
+  
+  skills:
+    market_context:
+      enabled: true
+      timeout_seconds: 30
+    
+    decision_explainer:
+      enabled: true
+      timeout_seconds: 20
+  
+  guardrails:
+    enforce_boundaries: true
+    audit_outputs: true
+    reject_out_of_bounds: true
+
+# 通知配置
+notifications:
+  channels:
+    - type: "log"
+      enabled: true
+    
+    - type: "webhook"
+      enabled: false
+      url: "${WEBHOOK_URL}"
+      events:
+        - "trade_proposal"
+        - "trade_executed"
+        - "risk_alert"
+  
+  schedule:
+    daily_report:
+      enabled: true
+      time: "18:00"
+    
+    weekly_report:
+      enabled: true
+      day: "friday"
+      time: "17:00"

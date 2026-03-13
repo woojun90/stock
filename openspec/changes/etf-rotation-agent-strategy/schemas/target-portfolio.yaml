@@ -1,0 +1,169 @@
+# Target Portfolio Schema
+# 目标组合 - 组合构建skill输出的目标持仓结构
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/target-portfolio.yaml"
+title: TargetPortfolio
+description: |
+  目标组合结构，由 portfolio-constructor skill 生成。
+  包含目标持仓、权重分配、约束应用摘要。
+
+type: object
+required:
+  - portfolio_id
+  - as_of
+  - positions
+  - cash_allocation
+  - constraint_summary
+
+properties:
+  portfolio_id:
+    type: string
+    description: 目标组合唯一标识
+    pattern: "^portfolio_[0-9]{8}_[0-9]{6}$"
+
+  as_of:
+    type: string
+    format: date-time
+    description: 组合构建时间点
+
+  ranking_source:
+    type: object
+    description: 排名来源引用
+    properties:
+      ranking_id:
+        type: string
+      top_n_used:
+        type: integer
+        description: 使用了前N名候选
+
+  positions:
+    type: array
+    description: 目标持仓列表
+    items:
+      $ref: "#/definitions/TargetPosition"
+
+  cash_allocation:
+    $ref: "#/definitions/CashAllocation"
+
+  constraint_summary:
+    $ref: "#/definitions/ConstraintSummary"
+
+  rebalance_trigger:
+    type: string
+    enum: [scheduled, risk_triggered, manual, threshold_drift]
+    description: 再平衡触发原因
+
+definitions:
+  TargetPosition:
+    type: object
+    required:
+      - code
+      - name
+      - target_weight
+      - inclusion_reason
+    properties:
+      code:
+        type: string
+        description: ETF代码
+
+      name:
+        type: string
+        description: ETF名称
+
+      category:
+        type: string
+        enum: [broad_based, commodity, sector, cash, bond]
+        description: ETF类别
+
+      target_weight:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: 目标权重（0-1）
+
+      weight_bounds:
+        type: object
+        description: 权重边界（来自policy）
+        properties:
+          min:
+            type: number
+          max:
+            type: number
+
+      inclusion_reason:
+        type: object
+        description: 纳入原因
+        properties:
+          rank:
+            type: integer
+            description: 在候选中的排名
+          momentum_score:
+            type: number
+          trend_direction:
+            type: string
+          primary_factor:
+            type: string
+            description: 主要纳入因素
+
+      constraints_applied:
+        type: array
+        description: 应用的约束
+        items:
+          type: object
+          properties:
+            constraint_type:
+              type: string
+              enum: [max_weight, category_limit, risk_reduction]
+            original_weight:
+              type: number
+            adjusted_weight:
+              type: number
+            rule_id:
+              type: string
+
+  CashAllocation:
+    type: object
+    description: 现金配置
+    properties:
+      target_cash_weight:
+        type: number
+        description: 目标现金比例（%）
+      cash_etf_code:
+        type: string
+        description: 现金类ETF代码（如银华日利）
+      reason:
+        type: string
+        description: 现金比例原因
+
+  ConstraintSummary:
+    type: object
+    description: 约束应用摘要
+    properties:
+      total_candidates_considered:
+        type: integer
+        description: 考虑的候选总数
+
+      candidates_included:
+        type: integer
+        description: 最终纳入的候选数
+
+      candidates_excluded:
+        type: integer
+        description: 被排除的候选数
+
+      exclusion_breakdown:
+        type: object
+        additionalProperties:
+          type: integer
+        description: 各原因排除数量
+
+      weight_adjustments:
+        type: integer
+        description: 因约束调整权重的数量
+
+      risk_constraints_applied:
+        type: array
+        items:
+          type: string
+        description: 应用的风控约束列表

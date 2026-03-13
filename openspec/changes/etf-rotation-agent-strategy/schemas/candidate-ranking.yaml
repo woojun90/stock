@@ -1,0 +1,205 @@
+# Candidate Ranking Schema
+# 候选排名 - 动量分析skill输出的结构化排名结果
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/candidate-ranking.yaml"
+title: CandidateRanking
+description: |
+  ETF动量排名结果，由 momentum-ranking skill 生成。
+  包含排名、排除理由、可复现元数据。
+
+type: object
+required:
+  - ranking_id
+  - snapshot_id
+  - as_of
+  - ranked_candidates
+  - excluded_candidates
+  - reproducibility_metadata
+
+properties:
+  ranking_id:
+    type: string
+    description: 排名结果唯一标识
+    pattern: "^ranking_[0-9]{8}_[0-9]{6}$"
+
+  snapshot_id:
+    type: string
+    description: 依赖的市场快照ID
+
+  as_of:
+    type: string
+    format: date-time
+    description: 排名计算时间点
+
+  strategy_policy_version:
+    type: string
+    description: 使用的策略策略版本
+
+  ranked_candidates:
+    type: array
+    description: 排名候选列表（按排名顺序）
+    items:
+      $ref: "#/definitions/RankedCandidate"
+
+  excluded_candidates:
+    type: array
+    description: 被排除的ETF及原因
+    items:
+      $ref: "#/definitions/ExcludedCandidate"
+
+  reproducibility_metadata:
+    $ref: "#/definitions/ReproducibilityMetadata"
+
+definitions:
+  RankedCandidate:
+    type: object
+    required:
+      - code
+      - name
+      - rank
+      - momentum_score
+      - z_score
+      - trend_direction
+    properties:
+      code:
+        type: string
+        description: ETF代码
+
+      name:
+        type: string
+        description: ETF名称
+
+      rank:
+        type: integer
+        minimum: 1
+        description: 排名（1为最高）
+
+      momentum_score:
+        type: object
+        description: 动量得分详情
+        properties:
+          raw_return:
+            type: number
+            description: 原始收益率
+          normalized_return:
+            type: number
+            description: 标准化收益率
+          z_score:
+            type: number
+            description: Z-Score标准化得分
+
+      z_score:
+        type: number
+        description: 综合Z-Score（用于排序）
+
+      trend_direction:
+        type: string
+        enum: [up, down, sideways]
+        description: 趋势方向
+
+      trend_metrics:
+        type: object
+        description: 趋势指标详情
+        properties:
+          ma50:
+            type: number
+            description: 50日均线
+          price_vs_ma50:
+            type: number
+            description: 价格相对MA50的位置（%）
+          ma50_slope:
+            type: number
+            description: MA50斜率
+
+      score_breakdown:
+        type: object
+        description: 得分明细
+        properties:
+          momentum_contribution:
+            type: number
+          trend_contribution:
+            type: number
+          liquidity_bonus:
+            type: number
+
+      confidence_label:
+        type: string
+        enum: [high, medium, low]
+        description: 信号置信度
+
+  ExcludedCandidate:
+    type: object
+    required:
+      - code
+      - name
+      - exclusion_reason
+    properties:
+      code:
+        type: string
+        description: ETF代码
+
+      name:
+        type: string
+        description: ETF名称
+
+      exclusion_reason:
+        type: string
+        enum:
+          - insufficient_history
+          - trend_down
+          - low_liquidity
+          - data_quality_issue
+          - suspended
+          - policy_restriction
+        description: 排除原因
+
+      exclusion_details:
+        type: object
+        description: 排除详情
+        properties:
+          actual_value:
+            type: number
+            description: 实际测量值
+          threshold:
+            type: number
+            description: 阈值
+          rule_id:
+            type: string
+            description: 触发的规则ID
+
+  ReproducibilityMetadata:
+    type: object
+    description: 可复现性元数据
+    required:
+      - algorithm_version
+      - parameter_snapshot
+    properties:
+      algorithm_version:
+        type: string
+        description: 算法版本
+
+      parameter_snapshot:
+        type: object
+        description: 参数快照
+        properties:
+          momentum_period:
+            type: integer
+            description: 动量计算周期
+          trend_ma_period:
+            type: integer
+            description: 趋势均线周期
+          z_score_method:
+            type: string
+            description: Z-Score计算方法
+          liquidity_threshold:
+            type: number
+            description: 流动性阈值
+
+      calculation_timestamp:
+        type: string
+        format: date-time
+
+      input_hash:
+        type: string
+        description: 输入数据hash，用于验证

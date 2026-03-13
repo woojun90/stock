@@ -1,0 +1,138 @@
+# Skill Result Envelope Schema
+# Skill执行结果信封 - 每次skill调用的统一返回结构
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/skill-result-envelope.yaml"
+title: SkillResultEnvelope
+description: |
+  每次skill执行都必须返回统一envelope。
+  包含状态、输出、副作用摘要、审计信息。
+
+type: object
+required:
+  - skill_id
+  - invocation_id
+  - cycle_id
+  - status
+  - started_at
+  - finished_at
+
+properties:
+  skill_id:
+    type: string
+    description: skill标识
+
+  invocation_id:
+    type: string
+    description: 本次调用唯一标识
+    pattern: "^inv_[0-9]{8}_[0-9]{6}_[a-f0-9]{8}$"
+
+  cycle_id:
+    type: string
+    description: 所属轮动周期
+
+  status:
+    type: string
+    enum: [success, degraded, failed, skipped, no_op]
+    description: |
+      success: 正常完成
+      degraded: 降级完成（如使用缓存数据）
+      failed: 执行失败
+      skipped: 跳过执行（如backtest中禁用AI）
+      no_op: 无操作（如AI skill在backtest模式）
+
+  input_digest:
+    type: string
+    description: 输入数据hash，用于审计
+
+  input_summary:
+    type: object
+    description: 输入摘要（不包含完整数据）
+    additionalProperties: true
+
+  output_payload:
+    type: object
+    description: 输出负载（具体结构由各skill定义）
+    additionalProperties: true
+
+  output_schema_ref:
+    type: string
+    description: 输出schema引用
+    example: "etf-rotation/schemas/candidate-ranking.yaml"
+
+  written_context_keys:
+    type: array
+    description: 写入的上下文字段
+    items:
+      type: string
+
+  errors:
+    type: array
+    description: 错误列表
+    items:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        severity:
+          type: string
+          enum: [warning, error, critical]
+        retryable:
+          type: boolean
+
+  warnings:
+    type: array
+    description: 警告列表
+    items:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        impact:
+          type: string
+
+  side_effect_summary:
+    type: object
+    description: 副作用摘要
+    properties:
+      type:
+        type: string
+        enum: [none, state_write, trade_proposal, trade_execute]
+      target:
+        type: string
+      records_written:
+        type: integer
+      external_calls:
+        type: integer
+
+  trace_ref:
+    type: string
+    description: 详细trace引用ID
+
+  started_at:
+    type: string
+    format: date-time
+    description: 开始时间
+
+  finished_at:
+    type: string
+    format: date-time
+    description: 结束时间
+
+  latency_ms:
+    type: integer
+    description: 执行耗时（毫秒）
+
+  metrics:
+    type: object
+    description: 执行指标
+    additionalProperties:
+      type: number
+    example:
+      candidates_processed: 30
+      rules_evaluated: 15
+      cache_hits: 12

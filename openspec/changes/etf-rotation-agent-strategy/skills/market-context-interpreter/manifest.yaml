@@ -1,0 +1,128 @@
+skill_id: market-context-interpreter
+version: "1.0.0"
+
+purpose: |
+  读取新闻/政策/宏观上下文，生成建议性解释与风险提示。
+  输出市场环境评估、政策风险提示、异常事件摘要、建议性约束。
+
+mode: ai_assisted
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+
+required_context:
+  - market_snapshot
+  - candidate_rankings
+
+input_schema:
+  type: object
+  properties:
+    snapshot_id:
+      type: string
+    candidate_codes:
+      type: array
+      items:
+        type: string
+    lookback_days:
+      type: integer
+      default: 7
+      description: 回看新闻天数
+
+output_schema:
+  type: object
+  properties:
+    market_regime:
+      type: string
+      enum: [bull, bear, sideways, uncertain]
+    key_factors:
+      type: array
+      items:
+        type: string
+    policy_risks:
+      type: array
+      items:
+        type: object
+        properties:
+          risk_type:
+            type: string
+          description:
+            type: string
+          severity:
+            type: string
+    recommendations:
+      type: array
+      items:
+        type: string
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+    source_references:
+      type: array
+      items:
+        type: string
+
+preconditions: []
+
+side_effects:
+  - type: state_write
+    target: reasoning_log
+    description: "记录AI推理日志"
+
+permissions: advisory
+
+fallback_policy:
+  on_ai_unavailable:
+    action: skip
+    output: no_op
+  on_ai_error:
+    action: degrade
+    output: template_based_context
+  on_timeout:
+    action: skip
+    timeout_seconds: 30
+
+executor_binding:
+  executor_type: ai
+  provider: claude
+  model: claude-sonnet-4-20250514
+  config:
+    max_tokens: 2000
+    temperature: 0.3
+    system_prompt: |
+      你是ETF轮动策略的市场环境分析师。
+      分析当前市场环境，提供advisory级别的建议。
+      你不得直接修改任何交易决策，只能提供解释和建议。
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - token_usage
+    - confidence_score
+
+mode_behavior:
+  backtest:
+    action: skip
+    output: no_op
+  paper:
+    action: enabled
+    output: advisory_only
+  live:
+    action: enabled
+    output: advisory_only
+
+ai_guardrails:
+  allow_ai_override: false
+  writable_fields:
+    - market_advisory
+    - human_review_queue
+  forbidden_fields:
+    - candidate_rankings
+    - risk_constraints
+    - target_portfolio
+    - trade_proposal
+    - approval_state
+  explanation: "AI skill只能输出advisory内容，不得修改确定性交易主路径"

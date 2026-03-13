@@ -1,0 +1,119 @@
+skill_id: decision-explainer
+version: "1.0.0"
+
+purpose: |
+  把本轮skill输出整合成人类可读的决策说明。
+  输出调仓理由、风险说明、关键约束、待审批事项。
+
+mode: ai_assisted
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - risk_triggered
+
+required_context:
+  - decision_envelope
+  - execution_trace
+
+input_schema:
+  type: object
+  required:
+    - decision_envelope
+  properties:
+    decision_envelope:
+      type: object
+      description: 决策信封
+    include_details:
+      type: boolean
+      default: true
+      description: 是否包含详细说明
+    language:
+      type: string
+      default: zh-CN
+      description: 输出语言
+
+output_schema:
+  type: object
+  properties:
+    summary:
+      type: string
+      description: 决策摘要
+    rationale:
+      type: string
+      description: 决策理由
+    risk_highlights:
+      type: array
+      items:
+        type: string
+      description: 风险要点
+    actions_required:
+      type: array
+      items:
+        type: object
+        properties:
+          action:
+            type: string
+          description:
+            type: string
+    approval_status:
+      type: string
+      description: 审批状态说明
+
+preconditions: []
+
+side_effects:
+  - type: state_write
+    target: explanation_log
+    description: "记录解释日志"
+
+permissions: advisory
+
+fallback_policy:
+  on_ai_unavailable:
+    action: template_based
+    description: "降级为模板化解释"
+  on_ai_error:
+    action: degrade
+    output: minimal_explanation
+
+executor_binding:
+  executor_type: ai
+  provider: claude
+  model: claude-sonnet-4-20250514
+  config:
+    max_tokens: 1500
+    temperature: 0.2
+    system_prompt: |
+      你是ETF轮动策略的决策解释专家。
+      基于decision_envelope生成人类可读的解释。
+      你只能解释已有决策，不得修改任何交易结果。
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - latency_ms
+    - token_usage
+
+mode_behavior:
+  backtest:
+    action: template_based
+    description: "回测模式使用模板化解释"
+  paper:
+    action: enabled
+  live:
+    action: enabled
+
+ai_guardrails:
+  allow_ai_override: false
+  writable_fields:
+    - human_readable_rationale
+    - explanation_log
+  forbidden_fields:
+    - candidate_rankings
+    - risk_constraints
+    - target_portfolio
+    - trade_proposal
+    - approval_state
+  explanation: "解释skill只能输出文本说明，不得修改任何决策字段"

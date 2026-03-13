@@ -1,0 +1,267 @@
+# Risk State Schema
+# 风险状态 - 风控skill输出的结构化风险约束
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/risk-state.yaml"
+title: RiskState
+description: |
+  ETF轮动风控状态，由 risk-guard skill 生成。
+  包含风险约束、禁买列表、减仓建议、风险事件。
+
+type: object
+required:
+  - risk_id
+  - as_of
+  - risk_level
+  - constraints
+  - portfolio_risk_metrics
+
+properties:
+  risk_id:
+    type: string
+    description: 风险状态唯一标识
+    pattern: "^risk_[0-9]{8}_[0-9]{6}$"
+
+  as_of:
+    type: string
+    format: date-time
+    description: 风险评估时间点
+
+  risk_level:
+    type: string
+    enum: [low, medium, high, critical]
+    description: 整体风险等级
+
+  portfolio_risk_metrics:
+    $ref: "#/definitions/PortfolioRiskMetrics"
+
+  constraints:
+    $ref: "#/definitions/RiskConstraints"
+
+  risk_events:
+    type: array
+    description: 风险事件列表
+    items:
+      $ref: "#/definitions/RiskEvent"
+
+  position_risks:
+    type: array
+    description: 各持仓的风险状态
+    items:
+      $ref: "#/definitions/PositionRisk"
+
+definitions:
+  PortfolioRiskMetrics:
+    type: object
+    description: 组合级风险指标
+    properties:
+      current_drawdown:
+        type: number
+        description: 当前回撤（%）
+        minimum: -100
+        maximum: 0
+
+      max_drawdown_30d:
+        type: number
+        description: 30日最大回撤（%）
+
+      portfolio_volatility:
+        type: number
+        description: 组合波动率（年化%）
+
+      sharpe_ratio:
+        type: number
+        description: 夏普比率
+
+      var_95:
+        type: number
+        description: 95% VaR（日度）
+
+      concentration_score:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: 集中度评分（越高越集中）
+
+  RiskConstraints:
+    type: object
+    description: 风险约束
+    properties:
+      prohibited_buys:
+        type: array
+        description: 禁止买入的ETF列表
+        items:
+          type: object
+          properties:
+            code:
+              type: string
+            reason:
+              type: string
+            rule_triggered:
+              type: string
+            until:
+              type: string
+              format: date
+              description: 禁止截止日期（如冷却期）
+
+      required_reductions:
+        type: array
+        description: 要求减仓的ETF列表
+        items:
+          type: object
+          properties:
+            code:
+              type: string
+            current_weight:
+              type: number
+            target_weight_max:
+              type: number
+            reason:
+              type: string
+            urgency:
+              type: string
+              enum: [immediate, within_day, within_week]
+
+      forced_exits:
+        type: array
+        description: 强制清仓的ETF列表
+        items:
+          type: object
+          properties:
+            code:
+              type: string
+            reason:
+              type: string
+            trigger_value:
+              type: number
+            threshold:
+              type: number
+
+      position_limits:
+        type: object
+        description: 仓位限制
+        properties:
+          max_single_etf:
+            type: number
+            description: 单ETF最大仓位（%）
+          max_category:
+            type: object
+            additionalProperties:
+              type: number
+            description: 各类别最大仓位
+          min_cash:
+            type: number
+            description: 最低现金比例（%）
+          max_leverage:
+            type: number
+            description: 最大杠杆倍数
+
+  RiskEvent:
+    type: object
+    description: 风险事件
+    required:
+      - event_id
+      - event_type
+      - severity
+      - triggered_at
+    properties:
+      event_id:
+        type: string
+        description: 事件唯一标识
+
+      event_type:
+        type: string
+        enum:
+          - stop_loss_triggered
+          - drawdown_warning
+          - volatility_spike
+          - liquidity_warning
+          - correlation_breakdown
+          - cooldown_expired
+          - position_limit_breach
+        description: 事件类型
+
+      severity:
+        type: string
+        enum: [info, warning, critical]
+        description: 严重程度
+
+      triggered_at:
+        type: string
+        format: date-time
+        description: 触发时间
+
+      affected_etfs:
+        type: array
+        items:
+          type: string
+        description: 涉及的ETF代码
+
+      trigger_details:
+        type: object
+        properties:
+          metric:
+            type: string
+            description: 触发的指标
+          actual_value:
+            type: number
+            description: 实际值
+          threshold:
+            type: number
+            description: 阈值
+          rule_id:
+            type: string
+            description: 触发的规则ID
+
+      action_taken:
+        type: string
+        description: 已采取的动作
+
+      requires_human_review:
+        type: boolean
+        default: false
+        description: 是否需要人工复核
+
+  PositionRisk:
+    type: object
+    description: 单个持仓的风险状态
+    properties:
+      code:
+        type: string
+        description: ETF代码
+
+      name:
+        type: string
+
+      current_weight:
+        type: number
+        description: 当前仓位（%）
+
+      unrealized_pnl_pct:
+        type: number
+        description: 浮动盈亏（%）
+
+      days_held:
+        type: integer
+        description: 持仓天数
+
+      in_cooldown:
+        type: boolean
+        description: 是否在冷却期
+
+      cooldown_until:
+        type: string
+        format: date
+        description: 冷却期截止日期
+
+      risk_flags:
+        type: array
+        items:
+          type: string
+          enum:
+            - near_stop_loss
+            - high_volatility
+            - low_liquidity
+            - large_position
+            - concentrated_category
+        description: 风险标签

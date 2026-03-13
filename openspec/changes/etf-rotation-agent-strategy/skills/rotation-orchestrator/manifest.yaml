@@ -1,0 +1,147 @@
+skill_id: rotation-orchestrator
+version: "1.0.0"
+
+purpose: |
+  ETF轮动策略编排中心。
+  基于skill registry、strategy policy、共享context驱动整条轮动链路。
+  聚合各skill输出，形成decision_envelope。
+
+mode: deterministic
+
+triggers:
+  - scheduled_rebalance
+  - manual_rebalance
+  - backtest_replay
+  - risk_triggered
+
+required_context:
+  - strategy_policy
+  - skill_registry
+  - mode_config
+
+input_schema:
+  type: object
+  required:
+    - trigger_type
+    - mode
+  properties:
+    trigger_type:
+      type: string
+      enum: [scheduled_rebalance, manual_rebalance, backtest_replay, risk_triggered]
+    mode:
+      type: string
+      enum: [backtest, paper, live]
+    policy_version:
+      type: string
+    as_of:
+      type: string
+      format: date-time
+
+output_schema:
+  $ref: "../schemas/decision-envelope.yaml"
+
+preconditions: []
+
+side_effects:
+  - type: state_write
+    target: execution_trace
+    description: "记录完整执行trace"
+  - type: state_write
+    target: decision_log
+    description: "记录决策日志"
+
+permissions: state_write
+
+skill_pipeline:
+  weekly_rebalance:
+    - skill_id: market-data-snapshot
+      required: true
+      on_fail: abort
+    - skill_id: momentum-ranking
+      required: true
+      on_fail: abort
+    - skill_id: risk-guard
+      required: true
+      on_fail: abort
+    - skill_id: market-context-interpreter
+      required: false
+      on_fail: continue
+    - skill_id: portfolio-constructor
+      required: true
+      on_fail: abort
+    - skill_id: decision-explainer
+      required: false
+      on_fail: continue
+    - skill_id: rebalance-executor
+      required: true
+      on_fail: abort
+
+  daily_monitoring:
+    - skill_id: market-data-snapshot
+      required: true
+    - skill_id: risk-guard
+      required: true
+    - skill_id: decision-explainer
+      required: false
+
+conflict_resolution:
+  priority_order:
+    - risk-guard
+    - policy_guardrail
+    - ai_advisory
+    - ranking_result
+  rule: "高优先级约束覆盖低优先级建议"
+
+fallback_policy:
+  on_critical_skill_fail:
+    action: abort_cycle
+    description: "关键skill失败时中止本轮"
+  on_ai_skill_fail:
+    action: continue_degraded
+    description: "AI skill失败时降级继续"
+  on_all_fail:
+    action: emergency_cash
+    description: "全部失败时转为现金"
+
+executor_binding:
+  executor_type: python
+  module: instock.etf_rotation.runtime.orchestrator
+  function: run_cycle
+  config:
+    max_cycle_time_seconds: 300
+    enable_parallel: false
+    trace_enabled: true
+
+observability:
+  log_input_digest: true
+  log_output_digest: true
+  emit_metrics:
+    - cycle_duration_ms
+    - skills_executed
+    - skills_failed
+    - decision_outcome
+
+mode_behavior:
+  backtest:
+    ai_skills: disabled
+    approval_gate: bypassed
+    execution: simulated
+  paper:
+    ai_skills: enabled
+    approval_gate: simulated
+    execution: simulated
+  live:
+    ai_skills: enabled
+    approval_gate: enforced
+    execution: real_on_approval
+
+approval_gate:
+  default_mode: batch_approval
+  expiry_hours: 24
+  require_confirmation_for:
+    - trade_execute
+
+ai_guardrails:
+  enforce_ai_boundaries: true
+  audit_ai_outputs: true
+  reject_out_of_bounds_ai_output: true

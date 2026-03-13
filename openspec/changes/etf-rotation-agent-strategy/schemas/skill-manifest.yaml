@@ -1,0 +1,307 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "etf-rotation/schemas/skill-manifest.yaml"
+title: SkillManifest
+description: |
+  ETF轮动策略 Skill Manifest 验证 Schema。
+  所有 skills/*/manifest.yaml 必须符合此结构。
+
+type: object
+required:
+  - skill_id
+  - version
+  - purpose
+  - mode
+  - triggers
+  - permissions
+
+properties:
+  skill_id:
+    type: string
+    pattern: "^[a-z][a-z0-9-]*$"
+    description: skill唯一标识，小写字母开头，仅允许小写字母、数字、连字符
+    maxLength: 64
+
+  version:
+    type: string
+    pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    description: 语义版本号
+
+  purpose:
+    type: string
+    description: skill用途说明
+    minLength: 10
+    maxLength: 500
+
+  mode:
+    type: string
+    enum: [deterministic, ai_assisted]
+    description: |
+      deterministic: 确定性skill，回测/实盘行为一致，AI不可覆盖
+      ai_assisted: AI辅助skill，仅提供advisory输出
+
+  triggers:
+    type: array
+    items:
+      type: string
+      enum:
+        - scheduled_rebalance
+        - manual_rebalance
+        - backtest_replay
+        - daily_monitoring
+        - risk_alert
+        - risk_triggered
+    minItems: 1
+    description: 触发条件列表
+
+  required_context:
+    type: array
+    items:
+      type: string
+    description: 依赖的上下文字段
+
+  input_schema:
+    type: object
+    description: 输入数据结构定义或引用
+    properties:
+      type:
+        type: string
+        enum: [object]
+      required:
+        type: array
+        items:
+          type: string
+      properties:
+        type: object
+      $ref:
+        type: string
+        description: 引用schemas/下的定义
+
+  output_schema:
+    type: object
+    description: 输出数据结构定义或引用
+    properties:
+      $ref:
+        type: string
+        description: 引用schemas/下的定义
+      type:
+        type: string
+      properties:
+        type: object
+
+  preconditions:
+    type: array
+    items:
+      type: object
+      required:
+        - field
+        - operator
+        - value
+      properties:
+        field:
+          type: string
+          description: 上下文字段路径
+        operator:
+          type: string
+          enum: ["==", "!=", ">", ">=", "<", "<=", "in", "not_in"]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+    description: 执行前置条件
+
+  side_effects:
+    type: array
+    items:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [none, state_write, trade_proposal, trade_execute]
+        optional:
+          type: boolean
+          default: false
+        target:
+          type: string
+        condition:
+          type: string
+        description:
+          type: string
+    description: 副作用声明
+
+  permissions:
+    oneOf:
+      - type: string
+        enum: [read_only, advisory, state_write, trade_proposal, trade_execute]
+      - type: object
+        properties:
+          backtest:
+            type: string
+            enum: [read_only, advisory, state_write, trade_proposal, trade_execute]
+          paper:
+            type: string
+            enum: [read_only, advisory, state_write, trade_proposal, trade_execute]
+          live:
+            type: string
+            enum: [read_only, advisory, state_write, trade_proposal, trade_execute]
+    description: 权限级别
+
+  fallback_policy:
+    type: object
+    description: 降级策略
+    additionalProperties:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [skip, use_cache, continue_degraded, fail_cycle, conservative_mode, all_cash, queue_proposal, partial_execute, retry, abort, template_based, continue]
+        description:
+          type: string
+        error_code:
+          type: string
+
+  executor_binding:
+    type: object
+    description: 执行器绑定
+    required:
+      - executor_type
+    properties:
+      executor_type:
+        type: string
+        enum: [python, ai]
+      module:
+        type: string
+        description: Python模块路径 (executor_type=python时必填)
+      function:
+        type: string
+        description: 函数名 (executor_type=python时必填)
+      provider:
+        type: string
+        description: AI提供商 (executor_type=ai时必填)
+        enum: [claude, openai]
+      model:
+        type: string
+        description: 模型名称 (executor_type=ai时必填)
+      config:
+        type: object
+        description: 配置参数
+
+  observability:
+    type: object
+    description: 可观测性配置
+    properties:
+      log_input_digest:
+        type: boolean
+        default: true
+      log_output_digest:
+        type: boolean
+        default: true
+      emit_metrics:
+        type: array
+        items:
+          type: string
+
+  priority:
+    type: string
+    enum: [low, normal, high, critical]
+    description: 优先级
+
+  ai_guardrails:
+    type: object
+    description: AI边界约束 (ai_assisted模式必填)
+    properties:
+      allow_ai_override:
+        type: boolean
+        default: false
+      writable_fields:
+        type: array
+        items:
+          type: string
+        description: AI允许写入的字段
+      forbidden_fields:
+        type: array
+        items:
+          type: string
+        description: AI禁止写入的字段
+      explanation:
+        type: string
+        description: 边界约束说明
+
+  mode_behavior:
+    type: object
+    description: 各模式下的行为差异
+    properties:
+      backtest:
+        type: object
+        properties:
+          action:
+            type: string
+            enum: [enabled, disabled, skip, template_based]
+          output:
+            type: string
+      paper:
+        type: object
+        properties:
+          action:
+            type: string
+          output:
+            type: string
+      live:
+        type: object
+        properties:
+          action:
+            type: string
+          output:
+            type: string
+
+  skill_pipeline:
+    type: object
+    description: Skill Pipeline定义 (orchestrator专用)
+    properties:
+      weekly_rebalance:
+        type: array
+        items:
+          type: object
+          properties:
+            skill_id:
+              type: string
+            required:
+              type: boolean
+            on_fail:
+              type: string
+              enum: [abort, continue]
+
+  conflict_resolution:
+    type: object
+    description: 冲突解决策略 (orchestrator专用)
+    properties:
+      priority_order:
+        type: array
+        items:
+          type: string
+      rule:
+        type: string
+
+  approval_gate:
+    type: object
+    description: 审批闸门配置
+    properties:
+      required_for:
+        type: array
+        items:
+          type: string
+      approval_modes:
+        type: array
+        items:
+          type: string
+      expires_in_hours:
+        type: integer
+      default_mode:
+        type: string
+      require_confirmation_for:
+        type: array
+        items:
+          type: string
